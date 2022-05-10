@@ -1,0 +1,13 @@
+name = "Relbo"
+uuid = "6d068120-08a1-451f-b3ac-c7ab35e3d9e0"
+authors = ["overshiki <le.niu@hotmail.com>"]
+version = "0.1.0"
+
+[deps]
+AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Formatting = "59287772-0a20-5a39-b81b-1366585eb4c0"
+MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
+Metatheory = "e9d8d322-4543-424a-9be4-0cc815abe26c"
+TermInterface = "8ea1fca8-c5ef-4a55-8b96-4e9afe9c9a3c"
+Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
