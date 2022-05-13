@@ -5,7 +5,7 @@ using AbstractTrees
 i, j, k, l = map(Index, [:i, :j, :k, :l])
 
 # latent variable z
-z = Atom(AtomOperation(:z, :sampling, Dist(:Beta)), [Param(:a, i), Param(:b, i)])
+z = Atom(AtomOperation(:z, :dist_sampling, Dist(:Beta)), [Param(:a, i), Param(:b, i)])
 
 
 data = Atom(AtomOperation(:q, :observe, FunctorOperation(:data)), Param(:data, i))
@@ -30,15 +30,18 @@ display(global_expr_dict)
 
 var = :data
 
-grad_func = sampling_fun_generator(code, var, true; ga=12, gb=4)
+# grad_func = sampling_fun_generator(code, var, true; ga=12, gb=4)
+grad_func = sampling_fun_generator(code, [var, :ga, :gb, :a, :b], true)
 
 ga = 12
 gb = 4
+a = 10 
+b = 11
 
 data = rand(100) 
-@time grad_func.(data, Ref(ga), Ref(gb))
+@time grad_func.(data, Ref(ga), Ref(gb), Ref(a), Ref(b))
 
-grad = sum(grad_func.(data, Ref(ga), Ref(gb)))
+grad = sum(grad_func.(data, Ref(ga), Ref(gb), Ref(a), Ref(b)))
 @show size(grad)
 
 println()

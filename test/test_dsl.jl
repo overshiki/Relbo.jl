@@ -2,7 +2,7 @@ using Relbo
 using Relbo: train
 
 
-grad_elbo = @ELBO ga, gb begin 
+elbo = @ELBO ga, gb begin 
     (i, j, k, l)::Index
     data::Observe(q)
     (a, b)::Param 
@@ -24,11 +24,15 @@ grad_elbo = @ELBO ga, gb begin
 
 end
 
-# @show grad_elbo
-sf_grad_elbo_eval = grad_elbo |> sf_grad_rule |> integral2sampler_rule #|> cgen
+# # @show grad_elbo
+# sf_grad_elbo_eval = grad_elbo |> sf_grad_rule |> integral2sampler_rule #|> cgen
 
-# grad_func = sampling_fun_generator(code, var, true; ga=12, gb=4)
+# # grad_func = sampling_fun_generator(code, var, true; ga=12, gb=4)
 
-data = rand(100) 
-g = GD(sf_grad_elbo_eval, :data; ga=12.0, gb=4.0)
+# data = rand(100) 
+# g = GD(sf_grad_elbo_eval, :data; ga=12.0, gb=4.0)
+# train(g::GD, data, 10)
+
+data = ones(100)
+g = GD(elbo, :data; ga=12.0, gb=4.0, a=10.0, b=3.0)
 train(g::GD, data, 10)

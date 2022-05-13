@@ -14,11 +14,18 @@ TermInterface.exprhead(::Param) = nothing
 TermInterface.operation(e::Param) = e.head 
 TermInterface.arguments(e::Param) = e.data
 
+TermInterface.istree(::EmptyTerm) = true 
+TermInterface.exprhead(::EmptyTerm) = nothing
+TermInterface.operation(e::EmptyTerm) = e.head 
+TermInterface.arguments(e::EmptyTerm) = e.data
+
 TermInterface.similarterm(::ExprTerm, head::Operation, args::Vector{<:Term}; exprhead=nothing) = ExprTerm(head, args)
 
 TermInterface.similarterm(::Atom, head::AtomOperation, args::Vector{<:Union{Param, Atom, Term}}; exprhead=nothing) = Atom(head, args)
 
 TermInterface.similarterm(::Param, head::ParamHead, args::Vector; exprhead=nothing) = Param(head, args)
+
+TermInterface.similarterm(::EmptyTerm, head, args; exprhead=nothing) = EmptyTerm()
 
 
 
@@ -29,15 +36,14 @@ TermInterface.similarterm(::Param, head::ParamHead, args::Vector; exprhead=nothi
 using Metatheory: Prewalk, Postwalk, PassThrough, Fixpoint
 
 
-get_op(x::ExprTerm) = x.op
-get_args(x::ExprTerm) = x.args
+# get_op(x::ExprTerm) = x.op
+# get_args(x::ExprTerm) = x.args
 get_args_length(x::ExprTerm) = length(x.args)
-
 is_single_arg(x::ExprTerm) = get_args_length(x)==1
 
 function get_single_arg(x::ExprTerm)
     @assert is_single_arg(x)
-    return get_args(x)[1]
+    return arguments(x)[1]
 end 
 
 function is_grad_operation(o::T) where {T<:Operation}
@@ -67,11 +73,11 @@ end
 
 
 function sf_estimator(x::ExprTerm)
-    grad_op = x.op
+    grad_op = operation(x)
     @assert is_single_arg(x)
     elbo = get_single_arg(x)
 
-    guide = elbo.args[1]
+    guide = arguments(elbo)[1]
 
     nelbo, nguide = copy(elbo), copy(guide)
     # nelbo = similarterm(elbo, operation(elbo), arguments(elbo))
@@ -90,13 +96,15 @@ end
 
 
 function integral2sampler_2expr(x::ExprTerm)
-    # println(x)
-    # println("==============>")
-    guide, terms = x.args[1], x.args[2:end]
-    # symbol = guide.symbol
+    guide, terms = arguments(x)[1], arguments(x)[2:end]
     symbol = get_symbol(guide)
 
-    # @show guide isa Atom
+    if length(terms)==1
+        term = terms[1]
+    else 
+        term = ExprTerm(FunctorOperation(:*), terms)
+    end
+
 
     function sampling_from_guide(guide::Atom)
         g = copy(guide)
@@ -109,12 +117,13 @@ function integral2sampler_2expr(x::ExprTerm)
         return data
     end
 
-    function is_rewrite(a::Atom)
+    """ rewrite distribution"""
+    function is_rewrite_dist(a::Atom)
         # println("is_rewrite")
         return get_symbol(a) == get_symbol(guide) && get_type(a)==:distribution
     end
 
-    function rewrite_obs(q::Atom)
+    function rewrite_dist_obs(q::Atom)
         data = sampling_from_guide(guide)
         # q.type = :observe
         q = change_type(q, :observe)
@@ -122,24 +131,145 @@ function integral2sampler_2expr(x::ExprTerm)
         return obsq
     end
 
-    function rewrite_obs_2expr(q::Atom)
-        # println("here")
-        obsq = rewrite_obs(q)
-        # println(obsq)
-        # println("++++++++++++")
+    function rewrite_dist_obs_2expr(q::Atom)
+        obsq = rewrite_dist_obs(q)
         return :($obsq)
     end 
 
-    r = @rule q q::Atom => rewrite_obs_2expr(q) where is_rewrite(q)
-    r = Postwalk(PassThrough(r))
+    r1 = @rule q q::Atom => rewrite_dist_obs_2expr(q) where is_rewrite_dist(q)
+    r1 = Postwalk(PassThrough(r1))
 
-    if length(terms)==1
-        term = terms[1]
-    else 
-        term = ExprTerm(FunctorOperation(:*), terms)
+
+    """ rewrite sampling"""
+    function is_rewrite_sampling(a::Atom)
+        # println("is_rewrite")
+        return get_symbol(a) == get_symbol(guide) && get_type(a)==:dist_sampling
     end
 
-    term = r(term)
+    function rewrite_sampling_obs(q::Atom)
+        data = sampling_from_guide(guide)
+        # q.type = :observe
+        q = change_type(q, :observe)
+        obsq = ExprTerm(FunctorOperation(:passing_and_observe), [q, data])
+        return obsq
+    end
+
+    function rewrite_sampling_obs_2expr(q::Atom)
+        obsq = rewrite_sampling_obs(q)
+        return :($obsq)
+    end 
+
+    r2 = @rule q q::Atom => rewrite_sampling_obs_2expr(q) where is_rewrite_sampling(q)
+    r2 = Postwalk(PassThrough(r2))
+
+    #TODO: try RefTerm and Term_dict idea
+
+    function is_has_passing_and_observe(q::Term)
+        for arg in arguments(q)
+            if arg isa ExprTerm && operation(arg).symbol == :passing_and_observe
+                return true 
+            end 
+
+            if operation(arg).symbol != :observe
+                if is_has_passing_and_observe(arg)
+                    return true 
+                end
+            end
+        end
+
+        return false
+    end
+
+    function is_observe_and_has_passing_and_observe(q::ExprTerm)
+        if operation(q).symbol==:observe
+            return is_has_passing_and_observe(q)
+        end
+        return false
+    end
+
+
+    function rewrite_and_return_passing_and_observe(q::Term)
+        for (i, arg) in enumerate(arguments(q))
+            if arg isa ExprTerm && operation(arg).symbol == :passing_and_observe
+                # modify arg recursive, in equivalent to inplace operation
+                @assert length(arguments(arg))==2
+                sampling_arg = nothing 
+                for a in arguments(arg)
+                    if a isa Atom && a.op.distribution==FunctorOperation(:data)
+                        @assert length(arguments(a))==1
+                        param = arguments(a)[1]
+                        @assert param isa Param 
+                        @assert length(arguments(param))==1
+                        sampling_arg = arguments(param)[1]
+                        @assert sampling_arg isa Atom 
+                    end 
+                end 
+                @assert sampling_arg isa Atom
+
+                # nqargs = arguments(q)
+                # nqargs = Vector{<:Union{Param, Atom, Term}}(copy(nqargs))
+                # nqargs[i] = sampling_arg
+                nqargs = Term[]
+                for (ii, _nqarg) in enumerate(arguments(q))
+                    if i==ii 
+                        push!(nqargs, sampling_arg)
+                    else 
+                        push!(nqargs, _nqarg)
+                    end
+                end
+
+                nq = similarterm(q, operation(q), nqargs)
+
+
+
+                # arg_return = copy(arg)
+
+                # op_symbol = operation(arg).symbol 
+                # operation(arg_return).symbol = :observe
+                op = FunctorOperation(:observe)
+                arg_return = ExprTerm(op, arguments(arg))
+                return arg_return, nq
+            end 
+
+            if operation(arg).symbol != :observe
+                term, sampling_arg = rewrite_and_return_passing_and_observe(arg)
+                if term!==nothing 
+                    # modify arg recursive, in equivalent to inplace operation
+                    # nqargs = arguments(q)
+                    # nqargs[i] = sampling_arg
+
+                    nqargs = Term[]
+                    for (ii, _nqarg) in enumerate(arguments(q))
+                        if i==ii 
+                            push!(nqargs, sampling_arg)
+                        else 
+                            push!(nqargs, _nqarg)
+                        end
+                    end
+
+                    nq = similarterm(q, operation(q), nqargs)
+
+                    return term, nq
+                end
+            end
+        end
+
+        return nothing, nothing
+    end
+
+
+
+    function rewrite_passing_and_observe_2expr(q::ExprTerm)
+        term, nq = rewrite_and_return_passing_and_observe(q)
+        @assert term!==nothing
+        term_return = ExprTerm(FunctorOperation(:*), [nq, term])
+        return :($term_return)
+    end
+
+    r3 = @rule q q::ExprTerm => rewrite_passing_and_observe_2expr(q) where is_observe_and_has_passing_and_observe(q)
+    r3 = Postwalk(PassThrough(r3))
+
+    term = term |> r1 |> r2 |> r3
     return :($term)
 
 
@@ -209,3 +339,78 @@ passthrough_grad_rule = Postwalk(PassThrough(passthrough_grad_rule))
 
 
 
+
+
+function integral2dist_sampling_rewrite_2expr(x::ExprTerm)
+    guide, terms = arguments(x)[1], arguments(x)[2:end]
+    @assert guide isa Atom
+    guide_symbol = get_symbol(guide)
+
+    if length(terms)==1
+        term = terms[1]
+    else 
+        term = ExprTerm(FunctorOperation(:*), terms)
+    end
+
+
+    function is_dist_sampling_rewriting(x::Atom)#, guide_symbol::Symbol)
+
+        if get_dist_op(x) isa Dist #&& operation(x).type==:observe
+            for arg in arguments(x)
+                # x is a Atom with Dist type, and x has a param that is a Atom with Dist type
+                if arg isa Atom
+                    if get_symbol(arg)==guide_symbol
+                        if get_dist_op(arg) isa Dist && operation(arg).type==:distribution
+                            return true 
+                        end 
+                    end 
+                end 
+            end 
+        end 
+        return false
+    end
+
+
+    function dist_sampling_rewrite_2expr(x::Atom)#, guide_symbol::Symbol)
+        # if get_dist_op(x) isa Dist #&& operation(x).type==:observe
+        narg_dict = Dict()
+        for (index, arg) in enumerate(arguments(x))
+            # x is a Atom with Dist type, and x has a param that is a Atom with Dist type
+            if arg isa Atom
+                if get_symbol(arg)==guide_symbol
+                    if get_dist_op(arg) isa Dist && operation(arg).type==:distribution
+                        op = operation(arg)
+                        nop = AtomOperation(op.symbol, :dist_sampling, op.distribution)
+                        narg = similarterm(arg, nop, arguments(arg))
+                        narg_dict[index] = narg
+                    end 
+                end 
+            end 
+        end 
+
+
+        nargs = Term[]
+        for (index, arg) in enumerate(arguments(x))
+            if index in keys(narg_dict)
+                push!(nargs, narg_dict[index])
+            else 
+                push!(nargs, arg)
+            end
+        end
+        nx = similarterm(x, operation(x), nargs)
+        return :($nx)
+    end
+
+    # r = @rule q q::Atom => dist_sampling_rewrite_2expr(q, guide_symbol) where is_dist_sampling_rewriting(q, guide_symbol)
+    r = @rule q q::Atom => dist_sampling_rewrite_2expr(q) where is_dist_sampling_rewriting(q)
+    r = Postwalk(PassThrough(r))
+
+    term = r(term)
+
+    re_integral = Integral(guide_symbol, guide, term)
+    return :($re_integral)
+
+end
+
+integral2dist_sampling_rewrite_rule = @rule x x::ExprTerm => integral2dist_sampling_rewrite_2expr(x) where is_integral_operation(x)
+integral2dist_sampling_rewrite_rule = Postwalk(PassThrough(integral2dist_sampling_rewrite_rule))

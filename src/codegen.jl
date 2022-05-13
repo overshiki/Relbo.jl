@@ -3,6 +3,7 @@ using Distributions
 
 global_expr_dict = Dict() 
 global_mapping = Dict()
+global_hash_dict = Dict()
 
 
 function cgen(x::Union{Real, Vector})
@@ -12,7 +13,8 @@ end
 function cgen(x::Param)
     @assert length(x.data)==1
     data = x.data[1]
-    if data!==nothing
+    # if data!==nothing
+    if !(data isa EmptyTerm)
         d = cgen(data)
         # if d isa Atom 
         #     # return :(rand($(x.data)))
@@ -62,6 +64,51 @@ function cgen(x::Atom, ::Val{:data})
     return cgen(param)
 end
 
+function atom2hash(x::Atom, symbol::Symbol)
+    hash_symbol = nothing
+    for ak in keys(global_hash_dict)
+        if approx_eqaul(x, global_hash_dict[ak])
+            hash_symbol = ak 
+        end 
+    end 
+    
+    is_has_symbol = symbol in keys(global_hash_dict)
+    
+    # @show is_has_symbol, symbol, hash_symbol
+    # if is_has_symbol
+    #     ex = global_hash_dict[symbol]
+    #     println(x)
+    #     println(ex)
+    #     println(approx_eqaul(x.op, ex.op))
+    #     println(is_same_set(x.params, ex.params))
+    #     print(Set(x.params)==Set(ex.params))
+    # end
+
+    # for _ in 1:5 
+    #     println()
+    # end
+
+    if is_has_symbol
+        if hash_symbol==symbol
+            "do nothing"
+        else
+            "hash to a different symbol"
+            symbol = Symbol(symbol, gensym())
+            global_hash_dict[symbol] = x
+        end 
+    else 
+        if hash_symbol!==nothing 
+            symbol = hash_symbol
+        else
+            "register to global_hash_dict"
+            global_hash_dict[symbol] = x
+        end
+    end
+    return symbol
+end
+
+
+
 """
 for example:
     obsq = ExprTerm(FunctorOperation(:observe), [q, data])
@@ -91,6 +138,8 @@ function cgen(x::Atom, ::Val{:observe_dist})
     # global_expr_dict[id] = expr
 
     symbol = get_symbol(x)
+    symbol = atom2hash(x, symbol)
+
     expr = :($symbol = $expr)
 
     global_expr_dict[symbol] = expr
@@ -112,10 +161,22 @@ function cgen(x::Atom, ::Val{:sampling})
     symbol = cgen(x, Val(:observe_dist))
 
     obs_symbol = Symbol(symbol, "_observe")
+
+    # obs_symbol = atom2hash(x, obs_symbol)
+    # if obs_symbol==symbol
+        # obs_symbol = Symbol(obs_symbol, gensym())
+    # end
+
     expr = :($obs_symbol = rand($symbol))
 
     global_expr_dict[obs_symbol] = expr
     global_mapping[obs_symbol] = symbol
+
+    # hash the Atom obj 
+
+
+
+
     # symbol = x.symbol
     # expr = :($symbol = $expr)
 
@@ -166,6 +227,7 @@ function cgen(x::ExprTerm, ::Val{:grad})
 
     block = :(begin end)
 
+    # @show term
     # k = collect(keys(global_expr_dict))
     all_symbols = get_data_symbols(term)
     for k in keys(global_expr_dict)
@@ -218,7 +280,8 @@ function cgen(x::ExprTerm, ::Val{:log})
 end
 
 
-function sampling_fun_generator(code, var, verbose=true; kwargs...)
+# function sampling_fun_generator(code, var, verbose=true; kwargs...)
+function sampling_fun_generator(code, params_symbol_vec, verbose=true)
     @show verbose
     function change_order(orders, parants, current)
         if parants in keys(orders)
@@ -254,14 +317,14 @@ function sampling_fun_generator(code, var, verbose=true; kwargs...)
     end
 
 
-    block = :(begin end)
-    for k in keys(kwargs)
-        v = kwargs[k]
-        expr = :($k = $v)
-        push!(block.args, expr)
-    end
+    # block = :(begin end)
+    # for k in keys(kwargs)
+    #     v = kwargs[k]
+    #     expr = :($k = $v)
+    #     push!(block.args, expr)
+    # end
 
-    block |> eval
+    # block |> eval
 
     block = :(begin end)
     for i in 1:length(orders)
@@ -271,22 +334,31 @@ function sampling_fun_generator(code, var, verbose=true; kwargs...)
         push!(block.args, expr)
     end 
 
+    Base.remove_linenums!(block)
     if verbose
         @show block
     end
-    inputs = :(($var, ))
-    # parameters = collect(keys(kwargs))
-    for k in keys(kwargs)
-        push!(inputs.args, k)
+
+    inputs = :(())
+    for param in params_symbol_vec
+        push!(inputs.args, param)
     end
+
+    # inputs = :(($var, ))
+    # # parameters = collect(keys(kwargs))
+    # for k in keys(kwargs)
+    #     push!(inputs.args, k)
+    # end
+    
 
     func_expr = quote 
         $inputs -> begin
             $block 
             return $code 
         end 
-    end 
+    end
 
+    Base.remove_linenums!(func_expr)
     if verbose
         println(func_expr)
     end

@@ -87,7 +87,7 @@ function generate_elbo_term(type_dict::Dict)
         end
 
         p = ParamHead(s, indices)
-        return Param(p, [nothing])
+        return Param(p, [EmptyTerm()])
     end
 
     function process_type_info(s::Symbol, T::TypeInfo, ::Val{:input_param})
@@ -180,9 +180,7 @@ function generate_elbo_term(type_dict::Dict)
 
         func_symbol = expr.args[1]
         if func_symbol!==:≈
-
             return generate_atom(expr, sym)
-
         else 
             @assert length(expr.args)==3
             sym = expr.args[3]
@@ -219,6 +217,7 @@ function generate_elbo_term(type_dict::Dict)
     block = :(begin end)
     term_dict = Dict()
     for i in orders
+        # group keys(type_dict) into subsets of equal orders
         for k in select_by_order(type_dict, i)
             T = type_dict[k]
             # @show k, T
@@ -232,7 +231,11 @@ function generate_elbo_term(type_dict::Dict)
     return term_dict
 end
 
-
+struct Elbo_container 
+    elbo::ExprTerm
+    grad_elbo::ExprTerm
+    grad_vars::Vector{Symbol}
+end
 
 macro ELBO(input_def::Expr, expr::Expr)
     type_dict = Dict()
@@ -303,9 +306,11 @@ macro ELBO(input_def::Expr, expr::Expr)
     end
 
     # println(block)
+    grad_vars = Symbol[]
 
     @assert input_def.head == :tuple
     for sym in input_def.args 
+        push!(grad_vars, sym)
         @assert sym in keys(type_dict)
         type_dict[sym].type = Val(:input_param)
     end
@@ -318,6 +323,12 @@ macro ELBO(input_def::Expr, expr::Expr)
     # @show input_symbols
     grad_elbo = ExprTerm(ParamOperation(:grad, input_symbols), elbo)
 
+    grad_elbo = integral2dist_sampling_rewrite_rule(grad_elbo)
+    elbo = integral2dist_sampling_rewrite_rule(elbo)
     # println()
-    return :($grad_elbo)
+    elbo_c = Elbo_container(elbo, grad_elbo, grad_vars)
+
+    # return :($grad_elbo)
+    return :($elbo_c)
+
 end

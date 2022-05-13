@@ -17,11 +17,19 @@ function to_string(x::Param)
     return "Param_" * string(get_symbol(x))
 end
 
-function to_string(x::Nothing)
+function to_string(x::EmptyTerm)
     return "nothing"
 end
 
-function to_tree(x::Nothing)
+# function to_string(x::Nothing)
+#     return "nothing"
+# end
+
+# function to_tree(x::Nothing)
+#     return "nothing"
+# end
+
+function to_tree(x::EmptyTerm)
     return "nothing"
 end
 
