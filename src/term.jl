@@ -3,6 +3,35 @@ using Metatheory
 abstract type Term end 
 abstract type Operation end 
 
+
+function is_same_set(a::Vector, b::Vector)
+    check = length(a)==length(b)
+    count = 0
+    self_count = 0
+    for ai in a 
+        for bi in b 
+            if typeof(ai)==typeof(bi)
+                if ai==bi 
+                    count += 1 
+                end 
+            end 
+        end 
+        for aj in a 
+            if typeof(ai)==typeof(aj)
+                if ai==aj 
+                    self_count += 1 
+                end 
+            end 
+        end
+    end 
+    check = (count - (self_count - length(a)))==length(a)
+    # println(count, " ", self_count, " ", length(a))
+    return check
+end
+
+
+
+
 struct Index <: Term 
     index::Symbol 
     index_range::Symbol
@@ -12,7 +41,12 @@ Index(index::Symbol) = Index(index, gensym())
 struct ParamHead <: Operation
     symbol::Symbol
     indices::Union{Vector{Index}, Nothing}
+    func::Union{Function, Nothing}
 end
+
+# default func is nothing
+ParamHead(s::Symbol, ind::Union{Vector{Index}, Nothing}) = ParamHead(s, ind, nothing)
+# we do not match on ParamHead.func since it is hard
 Base.:(==)(a::ParamHead, b::ParamHead) = a.symbol==b.symbol && Set(a.indices)==Set(b.indices)
 
 
@@ -34,36 +68,6 @@ function EmptyTerm()
     return EmptyTerm(EmptyOperation(), [])
 end
 
-function is_same_set(a::Vector, b::Vector)
-    check = length(a)==length(b)
-    count = 0
-    self_count = 0
-    for ai in a 
-        for bi in b 
-            if typeof(ai)==typeof(bi)
-                # if operation(ai).symbol==operation(bi).symbol
-                #     @show ai, bi, ai==bi, Base.:(==)(ai, bi)
-                # end
-                # if ai.head==bi.head
-                #     @show is_same_set(ai.data, bi.data)
-                # end
-                if ai==bi 
-                    count += 1 
-                end 
-            end 
-        end 
-        for aj in a 
-            if typeof(ai)==typeof(aj)
-                if ai==aj 
-                    self_count += 1 
-                end 
-            end 
-        end
-    end 
-    check = (count - (self_count - length(a)))==length(a)
-    # println(count, " ", self_count, " ", length(a))
-    return check
-end
 
 
 struct Param <: Term 
@@ -101,6 +105,14 @@ end
 
 function Param(symbol::Symbol, index::Index)
     return Param(ParamHead(symbol, [index]), [EmptyTerm()])
+end
+
+function Param(symbol::Symbol, func::Function, indices::Vector{Index})
+    return Param(ParamHead(symbol, indices, func), [EmptyTerm()])
+end
+
+function Param(symbol::Symbol, func::Function, index::Index)
+    return Param(ParamHead(symbol, [index], func), [EmptyTerm()])
 end
 
 

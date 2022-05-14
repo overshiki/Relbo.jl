@@ -5,14 +5,16 @@ using AbstractTrees
 i, j, k, l = map(Index, [:i, :j, :k, :l])
 
 # latent variable z
-z = Atom(AtomOperation(:z, :dist_sampling, Dist(:Beta)), [Param(:a, i), Param(:b, i)])
+z = Atom(AtomOperation(:z, :dist_sampling, Dist(:ConstrainedBeta)), [Param(:a, i), Param(:b, i)])
 
 
 data = Atom(AtomOperation(:q, :observe, FunctorOperation(:data)), Param(:data, i))
 q = Atom(AtomOperation(:q, :observe, Dist(:InverseGaussian)), z)
 obsq = ExprTerm(FunctorOperation(:observe), [q, data])
 
-guide = Atom(AtomOperation(:z, :distribution, Dist(:Beta)), [Param(:ga, i), Param(:gb, i)])
+# guide = Atom(AtomOperation(:z, :distribution, Dist(:Beta)), [Param(:ga, i), Param(:gb, i)])
+guide = Atom(AtomOperation(:z, :distribution, Dist(:ConstrainedBeta)), [Param(:ga, i), Param(:gb, i)])
+
 elbo = Integral(:z, guide, obsq)
 grad_elbo = ExprTerm(ParamOperation(:grad, [:ga, :gb]), elbo)
 

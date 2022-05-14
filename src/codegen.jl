@@ -14,6 +14,7 @@ function cgen(x::Param)
     @assert length(x.data)==1
     data = x.data[1]
     # if data!==nothing
+    re_term = nothing
     if !(data isa EmptyTerm)
         d = cgen(data)
         # if d isa Atom 
@@ -22,10 +23,21 @@ function cgen(x::Param)
         # else
         #     return d
         # end
-        return d
+        # return d
+        re_term = d
+
     else 
-        return get_symbol(x)
+        # return get_symbol(x)
+        re_term = get_symbol(x)
     end
+
+    if operation(x).func!==nothing 
+        func = operation(x).func
+        # re_term = :($re_term |> $func)
+        re_term = :($func($re_term))
+    end
+
+    return re_term
     # global_expr_dict[id] = d
     # return d, id
 end
@@ -87,14 +99,18 @@ function atom2hash(x::Atom, symbol::Symbol)
     # for _ in 1:5 
     #     println()
     # end
-
+    """attention here, ugly logic implementation"""
     if is_has_symbol
         if hash_symbol==symbol
             "do nothing"
-        else
+        elseif hash_symbol==nothing
             "hash to a different symbol"
+            # @show "hash", symbol, hash_symbol, operation(x)
             symbol = Symbol(symbol, gensym())
             global_hash_dict[symbol] = x
+        else 
+            "accept the hash symbol"
+            symbol = hash_symbol
         end 
     else 
         if hash_symbol!==nothing 
@@ -104,6 +120,8 @@ function atom2hash(x::Atom, symbol::Symbol)
             global_hash_dict[symbol] = x
         end
     end
+    """attention here, ugly logic implementation end"""
+
     return symbol
 end
 
@@ -260,6 +278,7 @@ function cgen(x::ExprTerm, ::Val{:grad})
     return grad_expr
 end
 
+"""codegen for simple math"""
 function cgen(x::ExprTerm, ::Val{:*})
     terms = x.args
 
@@ -269,6 +288,28 @@ function cgen(x::ExprTerm, ::Val{:*})
     end
     return expr
 end
+
+function cgen(x::ExprTerm, ::Val{:+})
+    terms = x.args
+
+    expr = :((+)())
+    for term in terms 
+        push!(expr.args, cgen(term))
+    end
+    return expr
+end
+
+function cgen(x::ExprTerm, ::Val{:-})
+    terms = x.args
+
+    expr = :((-)())
+    for term in terms 
+        push!(expr.args, cgen(term))
+    end
+    return expr
+end
+"""codegen for simple math end"""
+
 
 function cgen(x::ExprTerm, ::Val{:log})
     terms = x.args 
@@ -349,11 +390,27 @@ function sampling_fun_generator(code, params_symbol_vec, verbose=true)
     # for k in keys(kwargs)
     #     push!(inputs.args, k)
     # end
-    
+
+    """trial to manually embedde mapping fun, actually not nesseccary"""
+    # mapping_fun_expr = quote function myBeta(a, b)
+    #         # a, b = log(1+exp(a)), log(1+exp(b))
+    #         a, b = 1+a^2, 1+b^2
+    #         # @show a, b
+    #         beta = Beta(a, b)
+    #         # @show beta
+    #         return beta
+    #     end
+    # end
+
+    # nblock = :(begin end)
+    # push!(nblock.args, mapping_fun_expr)
+    # push!(nblock.args, block)
+    """trial to manually embedde mapping fun, actually not nesseccary end"""
 
     func_expr = quote 
         $inputs -> begin
             $block 
+            # $nblock
             return $code 
         end 
     end

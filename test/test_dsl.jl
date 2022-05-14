@@ -6,6 +6,7 @@ elbo = @ELBO ga, gb begin
     (i, j, k, l)::Index
     data::Observe(q)
     (a, b)::Param 
+    # (ga, gb)::Param(exp)
 
     a | i 
     b | i
@@ -13,10 +14,10 @@ elbo = @ELBO ga, gb begin
     ga | i 
     gb | i 
 
-    z ~ Beta(a, b)
+    z ~ ConstrainedBeta(a, b)
     q ~ InverseGaussian(z)
     obsq = q(data)
-    guide ~ Beta(ga, gb) ≈ z
+    guide ~ ConstrainedBeta(ga, gb) ≈ z
 
     
     # return 𝔼_guide(obsq)
@@ -34,5 +35,5 @@ end
 # train(g::GD, data, 10)
 
 data = ones(100)
-g = GD(elbo, :data; ga=12.0, gb=4.0, a=10.0, b=3.0)
+g = GD(elbo, :data, true; ga=12.0, gb=4.0, a=10.0, b=3.0)
 train(g::GD, data, 10)

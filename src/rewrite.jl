@@ -38,7 +38,7 @@ using Metatheory: Prewalk, Postwalk, PassThrough, Fixpoint
 
 # get_op(x::ExprTerm) = x.op
 # get_args(x::ExprTerm) = x.args
-get_args_length(x::ExprTerm) = length(x.args)
+get_args_length(x::ExprTerm) = length(arguments(x))
 is_single_arg(x::ExprTerm) = get_args_length(x)==1
 
 function get_single_arg(x::ExprTerm)
@@ -51,10 +51,10 @@ function is_grad_operation(o::T) where {T<:Operation}
 end
 is_grad_operation(e::ExprTerm) = is_grad_operation(e.op)
 
-function is_integral_operation(o::T) where {T<:Operation}
-    return o isa ParamOperation && o.symbol==:integral
-end
-is_integral_operation(e::ExprTerm) = is_integral_operation(e.op)
+# function is_integral_operation(o::T) where {T<:Operation}
+#     return o isa ParamOperation && o.symbol==:integral
+# end
+# is_integral_operation(e::ExprTerm) = is_integral_operation(e.op)
 
 function is_sf_grad(x::ExprTerm)
     if is_grad_operation(x)
@@ -77,15 +77,30 @@ function sf_estimator(x::ExprTerm)
     @assert is_single_arg(x)
     elbo = get_single_arg(x)
 
-    guide = arguments(elbo)[1]
+    # guide = arguments(elbo)[1]
+    guide, terms = arguments(elbo)[1], arguments(elbo)[2:end]
 
-    nelbo, nguide = copy(elbo), copy(guide)
+    nguide = copy(guide)
+    # nelbo = copy(elbo)
     # nelbo = similarterm(elbo, operation(elbo), arguments(elbo))
     # nguide = similarterm(guide, operation(guide), arguments(guide))
 
     log_guide = ExprTerm(FunctorOperation(:log), nguide)
-    grad_log_guide = ExprTerm(grad_op, log_guide)
-    push!(nelbo.args, grad_log_guide)
+
+    #TODO, implement and take advantages of has_symbol function
+    push!(terms, log_guide)
+    if length(terms)==1
+        term = terms[1]
+    else 
+        term = ExprTerm(FunctorOperation(:*), terms)
+    end
+
+    # grad_log_guide = ExprTerm(grad_op, log_guide)
+    # push!(nelbo.args, grad_log_guide)
+    grad_term = ExprTerm(grad_op, term)
+    # push!(nelbo.args, grad_log)
+    nelbo = similarterm(elbo, operation(elbo), [guide, grad_term])
+
     return nelbo
 end
 
@@ -93,6 +108,20 @@ function sf_estimator_2expr(x::ExprTerm)
     elbo = sf_estimator(x)
     return :($elbo)
 end
+
+
+sf_grad_rule = @rule x x::ExprTerm => sf_estimator_2expr(x) where is_sf_grad(x)
+sf_grad_rule = Postwalk(PassThrough(sf_grad_rule))
+
+
+
+
+
+
+
+
+
+
 
 
 function integral2sampler_2expr(x::ExprTerm)
@@ -164,12 +193,16 @@ function integral2sampler_2expr(x::ExprTerm)
 
     #TODO: try RefTerm and Term_dict idea
 
+
+
+
+
     function is_has_passing_and_observe(q::Term)
         for arg in arguments(q)
             if arg isa ExprTerm && operation(arg).symbol == :passing_and_observe
                 return true 
             end 
-
+            # run recursively
             if operation(arg).symbol != :observe
                 if is_has_passing_and_observe(arg)
                     return true 
@@ -293,20 +326,33 @@ integral2sampler_rule = Postwalk(PassThrough(integral2sampler_rule))
 
 function is_grad_prod(x::ExprTerm)
     if is_grad_operation(x)
-        @assert length(x.args)==1
-        expr = x.args[1] 
-        operation = expr.op 
+        # @assert length(x.args)==1
+        # expr = x.args[1] 
+        # operation = expr.op 
+
+        # @assert length(arguments(x))==1
+        # expr = arguments(x)[1]
+        # operation = operation(expr)
+
+        @assert is_single_arg(x)
+        expr = get_single_arg(x)
+        operation = operation(expr)
+
         return operation.symbol == :* 
     end
     return false
 end
 
+"""
+grad{x}(f(x)*g(x)) -> grad{x}(f(x))g(x) + f(x)grad{x}(g(x))
+"""
 function grad_passthrough(x::ExprTerm, ::Val{:*})
     grad_op = x.op 
     @assert is_single_arg(x)
     expr = get_single_arg(x)
 
-    prod_terms = expr.args
+    # prod_terms = expr.args
+    prod_terms = arguments(expr)
 
     sum_terms = Term[]
     for i in 1:length(prod_terms)
@@ -331,10 +377,7 @@ function grad_passthrough_2expr(x::ExprTerm, ::Val{:*})
 end
 
 
-sf_grad_rule = @rule x x::ExprTerm => sf_estimator_2expr(x) where is_sf_grad(x)
 passthrough_grad_rule = @rule x x::ExprTerm => grad_passthrough_2expr(x, Val(:*)) where is_grad_prod(x)
-
-sf_grad_rule = Postwalk(PassThrough(sf_grad_rule))
 passthrough_grad_rule = Postwalk(PassThrough(passthrough_grad_rule))
 
 

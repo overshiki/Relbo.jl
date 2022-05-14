@@ -13,6 +13,7 @@ function update_type_dict(index::Int, type_dict::Dict, symbol::Symbol, type_symb
         if type_symbol isa Val 
             type_dict[symbol] = TypeInfo(type_symbol, [], index)
         else 
+            # this Val(:default) tag will be replaced with valid tag eventually
             type_dict[symbol] = TypeInfo(Val(:default), [], -1)
         end
     else 
@@ -69,6 +70,9 @@ end
 
 
 function generate_elbo_term(type_dict::Dict)
+    # remind that there exists term_dict that is visible to every function inside generate_elbo_term
+    # this is a very key point
+
     function select_by_order(type_dict, order)
         ks = []
         for k in keys(type_dict)
@@ -81,12 +85,26 @@ function generate_elbo_term(type_dict::Dict)
 
     function process_type_info(s::Symbol, T::TypeInfo, ::Val{:Param})
         indices = Index[] 
+        func = nothing
         for ind in T.infos 
-            @assert ind isa Index 
-            push!(indices, ind)
+            # @assert ind isa Index 
+            if ind isa Index
+                push!(indices, ind)
+            elseif ind isa Expr 
+                @assert ind.head == :call
+                @assert ind.args[1] == :Param
+                @assert length(ind.args) == 2 
+                @assert ind.args[2] isa Symbol
+                func_symbol = ind.args[2]
+                # there should only be one func in T.infos
+                @assert func == nothing
+                func = eval(func_symbol)
+                @assert func isa Function
+            else 
+                error()
+            end
         end
-
-        p = ParamHead(s, indices)
+        p = ParamHead(s, indices, func)
         return Param(p, [EmptyTerm()])
     end
 
@@ -249,14 +267,39 @@ macro ELBO(input_def::Expr, expr::Expr)
         # println(e)
         if e.head == Symbol("::") #&& (e.args[2]==:Index || e.args[2]==:Param)
             @assert length(e.args)==2
+            # e.args[2] contains term on the left side of :: symbol
             if e.args[2] isa Symbol
                 type_dict = process_type_assign(index, type_dict, e, Val(e.args[2]))
             else 
                 _expr = e.args[2]
                 @assert _expr isa Expr
                 @assert _expr.head == :call 
-                @assert _expr.args[1] == :Observe
-                type_dict = process_type_assign(index, type_dict, e.args[1], _expr, Val(:data))
+
+                func_head = _expr.args[1]
+                # @assert _expr.args[1] == :Observe
+                if func_head == :Observe
+                    type_dict = process_type_assign(index, type_dict, e.args[1], _expr, Val(:data))
+                elseif func_head == :Param 
+                    # type_dict = process_type_assign(index, type_dict, e.args[1], _expr, Val(:Param))
+
+                    to_assign = e.args[1]
+                    if to_assign isa Symbol
+                        type_dict = update_type_dict(index, type_dict, to_assign, Val(:Dist), _expr)
+                    elseif to_assign isa Expr
+                        @assert to_assign.head == :tuple
+                        for sym in to_assign.args
+                            @assert sym isa Symbol
+                            type_dict = update_type_dict(index, type_dict, sym, Val(:Param), _expr)
+                            # @show _expr
+                            # error()
+                        end
+                    else 
+                        error()
+                    end
+                else 
+                    # currently only support Observe(q) and Param(func)
+                    error()
+                end
                 # dump(_expr)
             end
             # push!(block.args, ex)
@@ -318,6 +361,23 @@ macro ELBO(input_def::Expr, expr::Expr)
     term_dict = generate_elbo_term(type_dict)
 
     elbo = term_dict[:elbo]
+
+    """special attention here"""
+    # generate real elbo:
+    @assert is_integral_operation(elbo)
+    guide, terms = arguments(elbo)[1], arguments(elbo)[2:end]
+    if length(terms)==1
+        term = terms[1]
+    else 
+        term = ExprTerm(FunctorOperation(:*), terms)
+    end
+
+    term = ExprTerm(FunctorOperation(:log), term)
+    tguide = ExprTerm(FunctorOperation(:log), guide)
+    term = ExprTerm(FunctorOperation(:-), [term, tguide])
+
+    elbo = Integral(get_symbol(guide), guide, term)
+    """special attention end"""
 
     input_symbols = input_def.args
     # @show input_symbols

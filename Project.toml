@@ -5,9 +5,12 @@ version = "0.1.0"
 
 [deps]
 AbstractTrees = "1520ce14-60c1-5f80-bbc7-55ef81b5835c"
+Distributed = "8ba89e20-285c-5b6f-9357-94700520ee1b"
 Distributions = "31c24e10-a181-5473-b8eb-7969acd0382f"
+Flux = "587475ba-b771-5e3f-ad9e-33799f191a9c"
 Formatting = "59287772-0a20-5a39-b81b-1366585eb4c0"
 MacroTools = "1914dd2f-81c6-5fcd-8719-6d5c9610ff09"
 Metatheory = "e9d8d322-4543-424a-9be4-0cc815abe26c"
 TermInterface = "8ea1fca8-c5ef-4a55-8b96-4e9afe9c9a3c"
+ThreadsX = "ac1d9e8a-700a-412c-b207-f0111f4b6c0d"
 Zygote = "e88e6eb3-aa80-5325-afca-941959d7151f"
