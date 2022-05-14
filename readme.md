@@ -13,7 +13,7 @@ using Relbo
 using Relbo: train
 
 
-grad_elbo = @ELBO ga, gb begin 
+elbo = @ELBO ga, gb begin 
     (i, j, k, l)::Index
     data::Observe(q)
     (a, b)::Param 
