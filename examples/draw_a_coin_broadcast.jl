@@ -38,10 +38,10 @@ end
 
 # create some data with 6 observed heads and 4 observed tails
 data = []
-for _ in 1:8
+for _ in 1:6
     push!(data, 1.0)
 end
-for _ in 1:2
+for _ in 1:4
     push!(data, 0.0)
 end
 
@@ -52,16 +52,16 @@ b = 10.0
 
 # initially, we guess ga=gb=15
 ga = 15.0
-gb = 5.0
+gb = 15.0
 
 # during variational inference, for each data point, we draw 1000 samples
 # sampling_size = 1000
-sampling_size = 100
+sampling_size = 10000
 
 
 # currently, we do sampling using repeat experiment idea
 data = cat([data for _ in 1:sampling_size]..., dims=1)
-g = GD(elbo, :data, true, 5e-3; ga=ga, gb=gb, a=a, b=b)
+g = GD(elbo, :data, true, 5e-4; ga=ga, gb=gb, a=a, b=b)
 
 # we train for 500 steps
 n_epochs = 100

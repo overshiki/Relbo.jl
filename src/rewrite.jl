@@ -87,17 +87,25 @@ function sf_estimator(x::ExprTerm)
 
     log_guide = ExprTerm(FunctorOperation(:log), nguide)
 
+    grad_log_guide = ExprTerm(grad_op, log_guide)
+
     #TODO, implement and take advantages of has_symbol function
-    push!(terms, log_guide)
+    # push!(terms, log_guide)
     if length(terms)==1
         term = terms[1]
     else 
         term = ExprTerm(FunctorOperation(:*), terms)
     end
 
+
+    term1 = ExprTerm(FunctorOperation(:*), [grad_log_guide, term])
+    term2 = ExprTerm(grad_op, term)
+
+    grad_term = ExprTerm(FunctorOperation(:+), [term1, term2])
+
     # grad_log_guide = ExprTerm(grad_op, log_guide)
     # push!(nelbo.args, grad_log_guide)
-    grad_term = ExprTerm(grad_op, term)
+    # grad_term = ExprTerm(grad_op, term)
     # push!(nelbo.args, grad_log)
     nelbo = similarterm(elbo, operation(elbo), [guide, grad_term])
 

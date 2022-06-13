@@ -17,6 +17,7 @@ using Distributed
 @everywhere include("../src/term.jl")
 @everywhere include("../src/pattern_match.jl")
 @everywhere include("../src/rewrite.jl")
+@everywhere include("../src/interface_func.jl")
 @everywhere include("../src/dsl.jl")
 @everywhere include("../src/term2latex.jl")
 @everywhere include("../src/codegen.jl")
@@ -25,38 +26,16 @@ using Distributed
 
 i, j, k, l = map(Index, [:i, :j, :k, :l])
 
-data = Atom(AtomOperation(:q, :observe, FunctorOperation(:data)), Param(:data, i))
+data = def_data(:q, Param(:data, i))
 
 # latent variable z
-z = Atom(AtomOperation(:z, :dist_sampling, Dist(:ConstrainedBeta)), [Param(:a, i), Param(:b, i)])
-q = Atom(AtomOperation(:q, :observe, Dist(:Bernoulli)), z)
-obsq = ExprTerm(FunctorOperation(:observe), [q, data])
+z = def_dist_sampling(:z, :ConstrainedBeta, [Param(:a, i), Param(:b, i)])
+q = def_dist_observe(:q, :Bernoulli, z)
+obsq = observe_bind(q=>data)
+guide = def_dist(:z, :ConstrainedBeta, [Param(:ga, i), Param(:gb, i)])
+model = Integral(:z, guide, obsq)
 
-guide = Atom(AtomOperation(:z, :distribution, Dist(:ConstrainedBeta)), [Param(:ga, i), Param(:gb, i)])
-
-# guide_s = ExprTerm(FunctorOperation(:sampling), guide)
-
-# elbo = ExprTerm(ParamOperation(:integral, :z), [guide, obsq])
-elbo = Integral(:z, guide, obsq)
-
-
-
-""" generate real elbo """
-guide, terms = arguments(elbo)[1], arguments(elbo)[2:end]
-if length(terms)==1
-    term = terms[1]
-else 
-    term = ExprTerm(FunctorOperation(:*), terms)
-end
-
-term = ExprTerm(FunctorOperation(:log), term)
-tguide = ExprTerm(FunctorOperation(:log), guide)
-term = ExprTerm(FunctorOperation(:-), [term, tguide])
-
-elbo = Integral(get_symbol(guide), guide, term)
-""" generate real elbo end """
-
-
+elbo = gen_elbo(model)
 grad_elbo = ExprTerm(ParamOperation(:grad, [:ga, :gb]), elbo)
 
 
